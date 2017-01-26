@@ -2,6 +2,8 @@ if (!require("Amelia")) install.packages("Amelia")
 if (!require("vcd")) install.packages("vcd")
 if (!require("corrgram")) install.packages("corrgram")
 if (!require("caret")) install.packages("caret")
+if (!require("randomForest")) install.packages
+library(randomForest)
 install.packages("ada")
 library(caret)
 library(Amelia)
@@ -384,14 +386,106 @@ summary(glm.tune.5)
 ada.grid <- expand.grid(.iter = c(50, 100),
                         .maxdepth = c(4, 8),
                         .nu = c(0.1, 1))
+# set.seed(35)
+# ada.tune <- train(Fate ~ Sex + Class + Age + Family + Embarked, 
+#                   data = train.batch,
+#                   method = "ada",
+#                   metric = "ROC",
+#                   tuneGrid = ada.grid,
+#                   trControl = cv.ctrl)
+# library(ada)
+# library(rpart)
+# ada.tune
+# plot(ada.tune)
+
+#Random Forest
+rf.grid <- data.frame(.mtry = c(2, 3))
 set.seed(35)
-ada.tune <- train(Fate ~ Sex + Class + Age + Family + Embarked, 
+rf.tune <- train(Fate ~ Sex + Class + Age + Family + Embarked, 
+                 data = train.batch,
+                 method = "rf",
+                 metric = "ROC",
+                 tuneGrid = rf.grid,
+                 trControl = cv.ctrl)
+rf.tune
+#And finally, we'll fit a support vector machine (SVM) model to the Titanic
+#data. There are two functions which can be tuned for SVM using train. The
+#default value for one of them -– sigest –- produces good results on most
+#occasions. The default grid of cost parameter C is 0.25, 0.5, and 1. If we set
+#train argument tuneLength = 9, the grid expands to c(0.25, 0.5, 1, 2, 4, 8, 16,
+#32, 64). As SVM is considered sensitive to the scale and magnitude of the
+#presented features, I'll use the preProcess argument to instruct train to make
+#arrangements for normalizing the data within resampling loops.
+
+set.seed(35)
+svm.tune <- train(Fate ~ Sex + Class + Age + Family + Embarked, 
                   data = train.batch,
-                  method = "ada",
+                  method = "svmRadial",
+                  tuneLength = 9,
+                  preProcess = c("center", "scale"),
                   metric = "ROC",
-                  tuneGrid = ada.grid,
                   trControl = cv.ctrl)
-library(ada)
-library(rpart)
-ada.tune
-plot(ada.tune)
+svm.tune
+##Model Evaluation
+
+glm.pred <- predict(glm.tune.5, test.batch)
+confusionMatrix(glm.pred, test.batch$Fate)
+
+## Boosted model
+# ada.pred <- predict(ada.tune, test.batch)
+# confusionMatrix(ada.pred, test.batch$Fate)
+
+#Random Forest model
+rf.pred <- predict(rf.tune, test.batch)
+confusionMatrix(rf.pred, test.batch$Fate)
+
+## SVM model 
+svm.pred <- predict(svm.tune, test.batch)
+confusionMatrix(svm.pred, test.batch$Fate)
+
+
+## Logistic regression model (BLACK curve)
+install.packages("pROC")
+library(pROC)
+glm.probs <- predict(glm.tune.5, test.batch, type = "prob")
+glm.ROC <- roc(response = test.batch$Fate,
+               predictor = glm.probs$Survived,
+               levels = levels(test.batch$Fate))
+plot(glm.ROC, type="S") 
+## Area under the curve: 0.8609 
+
+## Boosted model (GREEN curve)
+# ada.probs <- predict(ada.tune, test.batch, type = "prob")
+# ada.ROC <- roc(response = test.batch$Fate,
+#                predictor = ada.probs$Survived,
+#                levels = levels(test.batch$Fate))
+# plot(ada.ROC, add=TRUE, col="green") 
+## Area under the curve: 0.8759
+
+## Random Forest model (RED curve)
+rf.probs <- predict(rf.tune, test.batch, type = "prob")
+rf.ROC <- roc(response = test.batch$Fate,
+              predictor = rf.probs$Survived,
+              levels = levels(test.batch$Fate))
+plot(rf.ROC, add=TRUE, col="red") 
+## Area under the curve: 0.8713
+
+## SVM model (BLUE curve)
+svm.probs <- predict(svm.tune, test.batch, type = "prob")
+svm.ROC <- roc(response = test.batch$Fate,
+               predictor = svm.probs$Survived,
+               levels = levels(test.batch$Fate))
+plot(svm.ROC, add=TRUE, col="blue")
+## Area under the curve: 0.8077
+
+
+#The following R script uses caret function resamples to collect the resampling
+#results, then calls the dotplot function to create a visualization of the
+#resampling distributions. I'm typically not one for leaning on a single metric
+#for important decisions, but if you have been looking for that one graph which
+#sums up the performance of the four models, this is it.
+cv.values <- resamples(list(Logit = glm.tune.5, #Ada = ada.tune, 
+                            RF = rf.tune, SVM = svm.tune))
+dotplot(cv.values, metric = "ROC")
+
+
